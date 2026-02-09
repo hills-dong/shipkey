@@ -45,7 +45,7 @@ async function getFieldStatus(
 
   if (!config.providers) return { statuses, opStatus: "ready" };
 
-  // Check op status
+  // Check op status (op --version + op account list — no vault access, no biometric)
   const opStatus = await backend.checkStatus();
 
   if (opStatus !== "ready") {
@@ -58,33 +58,32 @@ async function getFieldStatus(
     return { statuses, opStatus };
   }
 
-  // Batch: one `op item get` per provider instead of one `op read` per field
+  // Step 1: Single `op item list` to warm up biometric session + discover existing items
+  const vaultItems = await backend.listVaultItems(config.vault);
+  const existingProviders = new Set(vaultItems.map((item) => item.title));
+
+  // Step 2: Sequential `op item get` only for providers that have items in vault
+  // (reuses the biometric session established by listVaultItems → 0 extra prompts)
   const sectionName = `${config.project}-${env}`;
-  const providerEntries = Object.entries(config.providers);
 
-  const itemResults = await Promise.allSettled(
-    providerEntries.map(([name]) =>
-      backend.getItemFields(name, config.vault)
-    )
-  );
-
-  for (let i = 0; i < providerEntries.length; i++) {
-    const [providerName, provider] = providerEntries[i];
+  for (const [providerName, provider] of Object.entries(config.providers)) {
     statuses[providerName] = {};
 
-    const result = itemResults[i];
-    const storedFields = new Set<string>();
-
-    if (result.status === "fulfilled") {
-      for (const f of result.value) {
+    if (existingProviders.has(providerName)) {
+      const fields = await backend.getItemFields(providerName, config.vault);
+      const storedFields = new Set<string>();
+      for (const f of fields) {
         if (f.section === sectionName) {
           storedFields.add(f.label);
         }
       }
-    }
-
-    for (const field of provider.fields) {
-      statuses[providerName][field] = storedFields.has(field) ? "stored" : "missing";
+      for (const field of provider.fields) {
+        statuses[providerName][field] = storedFields.has(field) ? "stored" : "missing";
+      }
+    } else {
+      for (const field of provider.fields) {
+        statuses[providerName][field] = "missing";
+      }
     }
   }
 
