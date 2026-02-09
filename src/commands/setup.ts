@@ -153,11 +153,8 @@ async function handleStore(
         },
         value,
       });
-      // Map field to env var name for local write
-      const envKey = providerConfig.env_map[field];
-      if (envKey) {
-        localEnvVars[envKey] = value;
-      }
+      // Field name IS the env var name
+      localEnvVars[field] = value;
       results.push({ field, status: "ok" });
     } catch (err) {
       results.push({
@@ -248,11 +245,16 @@ async function handleSync(
 }
 
 function startServer(
-  config: ShipkeyConfig,
+  configPath: string,
   env: string,
   projectRoot: string,
   port?: number
 ): ReturnType<typeof Bun.serve> {
+  async function reloadConfig(): Promise<ShipkeyConfig> {
+    const raw = await readFile(configPath, "utf-8");
+    return JSON.parse(raw) as ShipkeyConfig;
+  }
+
   return Bun.serve({
     port: port ?? 0,
     async fetch(req) {
@@ -263,16 +265,26 @@ function startServer(
       }
 
       if (url.pathname === "/api/config" && req.method === "GET") {
-        const { statuses, opStatus } = await getFieldStatus(config, env);
+        const config = await reloadConfig();
         const providers: Record<string, unknown> = {};
         if (config.providers) {
           for (const [name, provider] of Object.entries(config.providers)) {
-            providers[name] = {
-              ...provider,
-              status: statuses[name] || {},
-            };
+            providers[name] = { ...provider };
           }
         }
+
+        return json({
+          project: config.project,
+          vault: config.vault,
+          env,
+          providers,
+          targets: config.targets || {},
+        });
+      }
+
+      if (url.pathname === "/api/status" && req.method === "GET") {
+        const config = await reloadConfig();
+        const { statuses, opStatus } = await getFieldStatus(config, env);
 
         // Check target CLI status
         const targetStatus: Record<string, TargetStatus> = {};
@@ -288,22 +300,20 @@ function startServer(
         }
 
         return json({
-          project: config.project,
-          vault: config.vault,
-          env,
-          providers,
-          targets: config.targets || {},
+          field_status: statuses,
           op_status: opStatus,
           target_status: targetStatus,
         });
       }
 
       if (url.pathname === "/api/store" && req.method === "POST") {
+        const config = await reloadConfig();
         const body = await req.json();
         return handleStore(config, env, projectRoot, body);
       }
 
       if (url.pathname === "/api/sync" && req.method === "POST") {
+        const config = await reloadConfig();
         const body = await req.json();
         return handleSync(config, env, body);
       }
@@ -351,8 +361,9 @@ export const setupCommand = new Command("setup")
       );
     }
 
+    const configPath = join(projectRoot, "shipkey.json");
     const port = opts.port ? parseInt(opts.port, 10) : undefined;
-    const server = startServer(config, opts.env, projectRoot, port);
+    const server = startServer(configPath, opts.env, projectRoot, port);
     const actualPort = server.port;
 
     const webHost = process.env.SHIPKEY_WEB_URL || "https://shipkey.dev";

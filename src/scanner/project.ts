@@ -172,8 +172,7 @@ export function printScanSummary({ config, stats, workflowSecrets }: ProjectScan
   if (providerNames.length > 0) {
     console.log(`\n  Providers (${providerNames.length}):`);
     for (const [name, provider] of Object.entries(config.providers || {})) {
-      const envKeys = Object.values(provider.env_map).join(", ");
-      console.log(`    ${name}: ${envKeys}`);
+      console.log(`    ${name}: ${provider.fields.join(", ")}`);
       if (provider.permissions && provider.permissions.length > 0) {
         const perms = provider.permissions.map((p) => p.permission).join(", ");
         console.log(`      → ${perms}`);

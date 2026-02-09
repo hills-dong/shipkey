@@ -103,10 +103,6 @@ export function guessProvider(key: string): string {
   return "General";
 }
 
-export function envKeyToField(key: string): string {
-  return key.toLowerCase().replace(/_/g, "-");
-}
-
 export function groupByProvider(
   envKeys: string[]
 ): Record<string, ProviderConfig> {
@@ -114,20 +110,17 @@ export function groupByProvider(
 
   for (const key of envKeys) {
     const providerName = guessProvider(key);
-    const field = envKeyToField(key);
 
     if (!result[providerName]) {
       const def = PROVIDERS.find((p) => p.name === providerName);
       result[providerName] = {
         fields: [],
-        env_map: {},
         ...(def?.guide_url && { guide_url: def.guide_url }),
         ...(def?.guide && { guide: def.guide }),
       };
     }
 
-    result[providerName].fields.push(field);
-    result[providerName].env_map[field] = key;
+    result[providerName].fields.push(key);
   }
 
   return result;

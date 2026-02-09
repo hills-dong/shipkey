@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { scan } from "../scanner";
 import { OnePasswordBackend } from "../backends/onepassword";
-import { guessProvider, envKeyToField } from "../providers";
+import { guessProvider } from "../providers";
 import { resolve, basename } from "path";
 
 export const pushCommand = new Command("push")
@@ -58,7 +58,7 @@ export const pushCommand = new Command("push")
             provider: entry.provider,
             project,
             env,
-            field: envKeyToField(entry.key),
+            field: entry.key,
           },
           value: entry.value,
         });

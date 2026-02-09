@@ -40,7 +40,7 @@ export const pullCommand = new Command("pull")
     for (const ref of refs) {
       try {
         const value = await backend.read(ref);
-        const envKey = fieldToEnvKey(ref.provider, ref.field);
+        const envKey = ref.field;
         entries.push({ key: envKey, value, ref });
         console.log(`  ✓ Restored ${envKey}`);
       } catch (err) {
@@ -86,9 +86,3 @@ export const pullCommand = new Command("pull")
     console.log(`\nRestored ${entries.length} keys for ${project}.${env}`);
   });
 
-function fieldToEnvKey(provider: string, field: string): string {
-  const prefix = provider.toUpperCase().replace(/[\s.-]/g, "_");
-  const suffix = field.toUpperCase().replace(/-/g, "_");
-  if (suffix.startsWith(prefix)) return suffix;
-  return `${prefix}_${suffix}`;
-}
