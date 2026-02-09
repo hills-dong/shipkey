@@ -73,6 +73,33 @@ export class OnePasswordBackend implements SecretBackend {
     return exec(["read", opUri]);
   }
 
+  async getItemFields(
+    provider: string,
+    vault: string
+  ): Promise<{ section: string; label: string }[]> {
+    try {
+      const raw = await exec([
+        "item",
+        "get",
+        provider,
+        "--vault",
+        vault,
+        "--format",
+        "json",
+      ]);
+      const item = JSON.parse(raw);
+      if (!item.fields) return [];
+      return item.fields
+        .filter((f: any) => f.section?.label && f.label)
+        .map((f: any) => ({
+          section: f.section.label as string,
+          label: f.label as string,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
   async ensureVault(vault: string): Promise<void> {
     try {
       await exec(["vault", "get", vault]);

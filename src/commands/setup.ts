@@ -48,37 +48,44 @@ async function getFieldStatus(
   // Check op status
   const opStatus = await backend.checkStatus();
 
-  const checks: {
-    provider: string;
-    field: string;
-    opRef: string;
-  }[] = [];
-
-  for (const [providerName, provider] of Object.entries(config.providers)) {
-    statuses[providerName] = {};
-    for (const field of provider.fields) {
-      if (opStatus !== "ready") {
+  if (opStatus !== "ready") {
+    for (const [providerName, provider] of Object.entries(config.providers)) {
+      statuses[providerName] = {};
+      for (const field of provider.fields) {
         statuses[providerName][field] = "missing";
-        continue;
       }
-      const opRef = `op://${config.vault}/${providerName}/${config.project}-${env}/${field}`;
-      checks.push({ provider: providerName, field, opRef });
     }
+    return { statuses, opStatus };
   }
 
-  if (opStatus !== "ready" || checks.length === 0) return { statuses, opStatus };
+  // Batch: one `op item get` per provider instead of one `op read` per field
+  const sectionName = `${config.project}-${env}`;
+  const providerEntries = Object.entries(config.providers);
 
-  const results = await Promise.allSettled(
-    checks.map(async (c) => {
-      await backend.readRaw(c.opRef);
-      return c;
-    })
+  const itemResults = await Promise.allSettled(
+    providerEntries.map(([name]) =>
+      backend.getItemFields(name, config.vault)
+    )
   );
 
-  for (let i = 0; i < results.length; i++) {
-    const check = checks[i];
-    statuses[check.provider][check.field] =
-      results[i].status === "fulfilled" ? "stored" : "missing";
+  for (let i = 0; i < providerEntries.length; i++) {
+    const [providerName, provider] = providerEntries[i];
+    statuses[providerName] = {};
+
+    const result = itemResults[i];
+    const storedFields = new Set<string>();
+
+    if (result.status === "fulfilled") {
+      for (const f of result.value) {
+        if (f.section === sectionName) {
+          storedFields.add(f.label);
+        }
+      }
+    }
+
+    for (const field of provider.fields) {
+      statuses[providerName][field] = storedFields.has(field) ? "stored" : "missing";
+    }
   }
 
   return { statuses, opStatus };
