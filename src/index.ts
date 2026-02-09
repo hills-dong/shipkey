@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("shipkey")
   .description("Manage developer API keys via 1Password")
-  .version("0.1.2");
+  .version("0.1.3");
 
 program.addCommand(scanCommand);
 program.addCommand(pushCommand);
