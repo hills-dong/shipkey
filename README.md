@@ -25,6 +25,8 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
+> **Tip:** Visit [shipkey.dev/setup](https://shipkey.dev/setup) to use the web-based setup wizard with step-by-step guides for each provider.
+
 ## How It Works
 
 ```
@@ -136,16 +138,10 @@ shipkey list -e prod           # Filter by environment
   "vault": "shipkey",
   "providers": {
     "Cloudflare": {
-      "fields": ["cloudflare-api-token"],
-      "env_map": {
-        "cloudflare-api-token": "CLOUDFLARE_API_TOKEN"
-      }
+      "fields": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
     },
     "Stripe": {
-      "fields": ["stripe-secret-key"],
-      "env_map": {
-        "stripe-secret-key": "STRIPE_SECRET_KEY"
-      }
+      "fields": ["STRIPE_SECRET_KEY"]
     }
   },
   "targets": {
@@ -161,14 +157,14 @@ shipkey list -e prod           # Filter by environment
 Secrets are stored at:
 
 ```
-op://{vault}/{provider}/{project}-{env}/{field}
+op://{vault}/{provider}/{project}-{env}/{FIELD}
 ```
 
 Example:
 
 ```
-op://shipkey/Cloudflare/my-app-prod/cloudflare-api-token
-op://shipkey/Stripe/my-app-dev/stripe-secret-key
+op://shipkey/Cloudflare/my-app-prod/CLOUDFLARE_API_TOKEN
+op://shipkey/Stripe/my-app-dev/STRIPE_SECRET_KEY
 ```
 
 ## Requirements

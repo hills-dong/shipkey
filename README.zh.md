@@ -25,6 +25,8 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
+> **提示：** 访问 [shipkey.dev/setup](https://shipkey.dev/setup) 使用网页版设置向导，包含每个服务商的分步指南。
+
 ## 工作流程
 
 ```
@@ -136,16 +138,10 @@ shipkey list -e prod           # 按环境过滤
   "vault": "shipkey",
   "providers": {
     "Cloudflare": {
-      "fields": ["cloudflare-api-token"],
-      "env_map": {
-        "cloudflare-api-token": "CLOUDFLARE_API_TOKEN"
-      }
+      "fields": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
     },
     "Stripe": {
-      "fields": ["stripe-secret-key"],
-      "env_map": {
-        "stripe-secret-key": "STRIPE_SECRET_KEY"
-      }
+      "fields": ["STRIPE_SECRET_KEY"]
     }
   },
   "targets": {
@@ -161,14 +157,14 @@ shipkey list -e prod           # 按环境过滤
 密钥存储路径格式：
 
 ```
-op://{vault}/{provider}/{project}-{env}/{field}
+op://{vault}/{provider}/{project}-{env}/{FIELD}
 ```
 
 示例：
 
 ```
-op://shipkey/Cloudflare/my-app-prod/cloudflare-api-token
-op://shipkey/Stripe/my-app-dev/stripe-secret-key
+op://shipkey/Cloudflare/my-app-prod/CLOUDFLARE_API_TOKEN
+op://shipkey/Stripe/my-app-dev/STRIPE_SECRET_KEY
 ```
 
 ## 环境要求
