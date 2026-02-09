@@ -1,5 +1,5 @@
 <p align="center">
-  <strong>English</strong> | <a href="README.zh.md">中文</a> | <a href="README.ja.md">日本語</a>
+  <strong>English</strong> | <a href="https://github.com/chekusu/shipkey/blob/main/README.zh.md">中文</a> | <a href="https://github.com/chekusu/shipkey/blob/main/README.ja.md">日本語</a>
 </p>
 
 # shipkey
@@ -25,7 +25,7 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
-> **Tip:** Visit [shipkey.dev/setup](https://shipkey.dev/setup) to use the web-based setup wizard with step-by-step guides for each provider.
+> **Tip:** `shipkey setup` will automatically open a web-based wizard connected to a local API server, guiding you through each provider with step-by-step instructions and saving keys to 1Password.
 
 ## How It Works
 

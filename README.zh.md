@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="README.md">English</a> | <strong>中文</strong> | <a href="README.ja.md">日本語</a>
+  <a href="https://github.com/chekusu/shipkey/blob/main/README.md">English</a> | <strong>中文</strong> | <a href="https://github.com/chekusu/shipkey/blob/main/README.ja.md">日本語</a>
 </p>
 
 # shipkey
@@ -25,7 +25,7 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
-> **提示：** 访问 [shipkey.dev/setup](https://shipkey.dev/setup) 使用网页版设置向导，包含每个服务商的分步指南。
+> **提示：** `shipkey setup` 会自动打开一个网页配置向导，连接本地 API 服务端口操作 1Password，引导你逐步配置每个服务商的密钥。
 
 ## 工作流程
 
