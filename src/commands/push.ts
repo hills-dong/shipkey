@@ -6,9 +6,9 @@ import { loadConfig } from "../config";
 import { resolve, basename } from "path";
 
 export const pushCommand = new Command("push")
-  .description("Push env values from local files to 1Password")
+  .description("Push env values from local files to your password manager")
   .option("-e, --env <env>", "environment (dev/prod)", "dev")
-  .option("--vault <vault>", "1Password vault name", "shipkey")
+  .option("--vault <vault>", "Vault or folder name", "shipkey")
   .option("--project <name>", "project name (defaults to directory name)")
   .argument("[dir]", "project directory", ".")
   .action(async (dir: string, opts) => {

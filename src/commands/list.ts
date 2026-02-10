@@ -4,7 +4,7 @@ import { loadConfig } from "../config";
 import { resolve, basename } from "path";
 
 export const listCommand = new Command("list")
-  .description("List keys stored in 1Password for this project")
+  .description("List keys stored in your password manager")
   .option("-e, --env <env>", "filter by environment")
   .option("--all", "list all projects", false)
   .option("--project <name>", "project name (defaults to directory name)")

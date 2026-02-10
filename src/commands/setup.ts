@@ -5,6 +5,8 @@ import { loadConfig, buildSecretRefMap } from "../config";
 import { scanProject, printScanSummary } from "../scanner/project";
 import type { ShipkeyConfig, TargetConfig } from "../config";
 import { getBackend } from "../backends";
+import { scan } from "../scanner";
+import { guessProvider } from "../providers";
 import type { SecretBackend } from "../backends/types";
 import { GitHubTarget } from "../targets/github";
 import { CloudflareTarget } from "../targets/cloudflare";
@@ -390,6 +392,69 @@ async function handleSync(
   });
 }
 
+async function handlePush(
+  config: ShipkeyConfig,
+  env: string,
+  projectRoot: string,
+  backend: SecretBackend
+): Promise<Response> {
+  try {
+    const result = await scan(projectRoot);
+
+    const entries = result.groups.flatMap((g) =>
+      g.files
+        .filter((f) => !f.isTemplate)
+        .flatMap((f) =>
+          f.vars
+            .filter((v) => v.value && v.value.length > 0)
+            .map((v) => ({
+              key: v.key,
+              value: v.value!,
+              provider: guessProvider(v.key),
+            }))
+        )
+    );
+
+    if (entries.length === 0) {
+      return json({ success: true, pushed: 0, results: [] });
+    }
+
+    const results: { field: string; provider: string; status: "ok" | "error"; error?: string }[] = [];
+
+    for (const entry of entries) {
+      try {
+        await backend.write({
+          ref: {
+            vault: config.vault,
+            provider: entry.provider,
+            project: config.project,
+            env,
+            field: entry.key,
+          },
+          value: entry.value,
+        });
+        results.push({ field: entry.key, provider: entry.provider, status: "ok" });
+      } catch (err) {
+        results.push({
+          field: entry.key,
+          provider: entry.provider,
+          status: "error",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return json({
+      success: results.every((r) => r.status === "ok"),
+      pushed: results.filter((r) => r.status === "ok").length,
+      total: results.length,
+      results,
+    });
+  } catch (err) {
+    return json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
 function startServer(
   configPath: string,
   env: string,
@@ -453,6 +518,11 @@ function startServer(
           backend_name: config.backend || "1password",
           target_status: targetStatus,
         });
+      }
+
+      if (url.pathname === "/api/push" && req.method === "POST") {
+        const config = await reloadConfig();
+        return handlePush(config, env, projectRoot, backend);
       }
 
       if (url.pathname === "/api/store" && req.method === "POST") {
