@@ -20,6 +20,7 @@ export interface TargetConfig {
 export interface ShipkeyConfig {
   project: string;
   vault: string;
+  backend?: string; // "1password" | "bitwarden", defaults to "1password"
   providers?: Record<string, ProviderConfig>;
   targets?: {
     github?: TargetConfig;
@@ -39,6 +40,37 @@ export async function loadConfig(dir: string): Promise<ShipkeyConfig> {
   }
 }
 
+import type { SecretBackend } from "./backends/types";
+
+/**
+ * Build a map of env key → inline reference (e.g. op:// URI).
+ * For backends that don't support inline refs (e.g. Bitwarden), values will be null.
+ */
+export function buildSecretRefMap(
+  config: ShipkeyConfig,
+  backend: SecretBackend,
+  env = "prod"
+): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  if (!config.providers) return map;
+
+  for (const [providerName, provider] of Object.entries(config.providers)) {
+    for (const field of provider.fields) {
+      const ref = {
+        vault: config.vault,
+        provider: providerName,
+        project: config.project,
+        env,
+        field,
+      };
+      const inlineRef = backend.buildInlineRef?.(ref) ?? null;
+      map.set(field, inlineRef);
+    }
+  }
+  return map;
+}
+
+/** @deprecated Use buildSecretRefMap instead */
 export function buildEnvKeyToOpRef(
   config: ShipkeyConfig,
   env = "prod"

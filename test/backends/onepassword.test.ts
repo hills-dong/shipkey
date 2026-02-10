@@ -17,7 +17,7 @@ describe("OnePasswordBackend", () => {
       field: "api-key",
     };
     expect(backend.buildRef(ref)).toBe(
-      "op://Dev/OpenRouter/shipcast.dev/api-key"
+      "op://Dev/OpenRouter/shipcast-dev/api-key"
     );
   });
 

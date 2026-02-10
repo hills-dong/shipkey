@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { OnePasswordBackend } from "../backends/onepassword";
+import { getBackend } from "../backends";
+import { loadConfig } from "../config";
 import { resolve, basename } from "path";
 
 export const listCommand = new Command("list")
@@ -13,11 +14,18 @@ export const listCommand = new Command("list")
     const project = opts.all ? undefined : (opts.project || basename(projectRoot));
     const env = opts.env;
 
-    const backend = new OnePasswordBackend();
+    let backendName = "1password";
+    try {
+      const config = await loadConfig(projectRoot);
+      if (config.backend) backendName = config.backend;
+    } catch {
+      // No config file — use default backend
+    }
+    const backend = getBackend(backendName);
 
     if (!(await backend.isAvailable())) {
       console.error(
-        "Error: 1Password CLI (op) not found. Install: brew install --cask 1password-cli"
+        `Error: ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
       );
       process.exit(1);
     }

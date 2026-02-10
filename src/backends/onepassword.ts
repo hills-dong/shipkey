@@ -28,6 +28,10 @@ export class OnePasswordBackend implements SecretBackend {
     return `op://${ref.vault}/${ref.provider}/${section}/${ref.field}`;
   }
 
+  buildInlineRef(ref: SecretRef): string | null {
+    return this.buildRef(ref);
+  }
+
   buildWriteArgs(entry: SecretEntry): string[] {
     const { ref, value } = entry;
     const section = this.sectionName(ref.project, ref.env);

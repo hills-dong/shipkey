@@ -1,10 +1,11 @@
 import { Command } from "commander";
 import { resolve } from "path";
-import { OnePasswordBackend } from "../backends/onepassword";
+import { getBackend } from "../backends";
+import type { SecretBackend } from "../backends/types";
 import { GitHubTarget } from "../targets/github";
 import { CloudflareTarget } from "../targets/cloudflare";
 import type { SyncTarget } from "../targets/types";
-import { loadConfig, buildEnvKeyToOpRef } from "../config";
+import { loadConfig, buildSecretRefMap } from "../config";
 import type { TargetConfig } from "../config";
 
 const TARGETS: Record<string, SyncTarget> = {
@@ -14,30 +15,35 @@ const TARGETS: Record<string, SyncTarget> = {
 
 async function resolveSecret(
   nameOrRef: string,
-  envKeyMap: Map<string, string>,
-  backend: OnePasswordBackend
+  refMap: Map<string, string | null>,
+  backend: SecretBackend
 ): Promise<{ name: string; value: string }> {
-  if (nameOrRef.startsWith("op://")) {
-    const value = await backend.readRaw(nameOrRef);
+  // For 1Password backend, check if it's a direct op:// reference
+  if (nameOrRef.startsWith("op://") && "readRaw" in backend) {
+    const value = await (backend as any).readRaw(nameOrRef);
     return { name: nameOrRef, value };
   }
 
-  // Look up env key name in providers config
-  const opRef = envKeyMap.get(nameOrRef);
-  if (!opRef) {
-    throw new Error(
-      `No op:// reference found for "${nameOrRef}". Add it to providers.env_map in shipkey.json.`
-    );
+  // Look up env key name via the ref map
+  const inlineRef = refMap.get(nameOrRef);
+  if (inlineRef && "readRaw" in backend) {
+    // Backend supports direct URI reading (1Password)
+    const value = await (backend as any).readRaw(inlineRef);
+    return { name: nameOrRef, value };
   }
-  const value = await backend.readRaw(opRef);
-  return { name: nameOrRef, value };
+
+  // No inline ref or backend doesn't support readRaw — not resolvable via this path
+  // This happens for Bitwarden where we need to resolve through the config
+  throw new Error(
+    `Cannot resolve secret "${nameOrRef}". Ensure it's configured in providers in shipkey.json.`
+  );
 }
 
 async function syncTarget(
   target: SyncTarget,
   config: TargetConfig,
-  envKeyMap: Map<string, string>,
-  backend: OnePasswordBackend
+  refMap: Map<string, string | null>,
+  backend: SecretBackend
 ): Promise<void> {
   console.log(`Syncing to ${target.name}...\n`);
 
@@ -57,7 +63,7 @@ async function syncTarget(
       // Resolve env key names via providers config
       for (const envKey of secretRefs) {
         try {
-          const secret = await resolveSecret(envKey, envKeyMap, backend);
+          const secret = await resolveSecret(envKey, refMap, backend);
           secrets.push(secret);
         } catch (err) {
           console.error(
@@ -70,8 +76,13 @@ async function syncTarget(
       // Record format: { "SECRET_NAME": "op://..." }
       for (const [name, ref] of Object.entries(secretRefs)) {
         try {
-          const value = await backend.readRaw(ref);
-          secrets.push({ name, value });
+          if (ref.startsWith("op://") && "readRaw" in backend) {
+            const value = await (backend as any).readRaw(ref);
+            secrets.push({ name, value });
+          } else {
+            const secret = await resolveSecret(name, refMap, backend);
+            secrets.push(secret);
+          }
         } catch (err) {
           console.error(
             `  ✗ ${name} — ${err instanceof Error ? err.message : err}`
@@ -119,15 +130,15 @@ export const syncCommand = new Command("sync")
       process.exit(1);
     }
 
-    const backend = new OnePasswordBackend();
+    const backend = getBackend(config.backend);
     if (!(await backend.isAvailable())) {
       console.error(
-        "Error: 1Password CLI (op) not found. Install: brew install --cask 1password-cli"
+        `Error: ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
       );
       process.exit(1);
     }
 
-    const envKeyMap = buildEnvKeyToOpRef(config);
+    const refMap = buildSecretRefMap(config, backend);
 
     // Determine which targets to sync
     const targetNames = targetArg
@@ -152,6 +163,6 @@ export const syncCommand = new Command("sync")
         continue;
       }
 
-      await syncTarget(target, targetConfig, envKeyMap, backend);
+      await syncTarget(target, targetConfig, refMap, backend);
     }
   });

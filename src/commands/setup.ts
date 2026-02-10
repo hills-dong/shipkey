@@ -1,10 +1,11 @@
 import { Command } from "commander";
 import { resolve, join } from "path";
 import { readFile, writeFile } from "fs/promises";
-import { loadConfig, buildEnvKeyToOpRef } from "../config";
+import { loadConfig, buildSecretRefMap } from "../config";
 import { scanProject, printScanSummary } from "../scanner/project";
 import type { ShipkeyConfig, TargetConfig } from "../config";
-import { OnePasswordBackend } from "../backends/onepassword";
+import { getBackend } from "../backends";
+import type { SecretBackend } from "../backends/types";
 import { GitHubTarget } from "../targets/github";
 import { CloudflareTarget } from "../targets/cloudflare";
 import type { SyncTarget, TargetStatus } from "../targets/types";
@@ -114,65 +115,83 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-type OpStatus = "not_installed" | "not_logged_in" | "ready";
+type BackendStatus = "not_installed" | "not_logged_in" | "ready";
 
 interface FieldStatusResult {
   statuses: Record<string, Record<string, "stored" | "missing">>;
-  opStatus: OpStatus;
+  backendStatus: BackendStatus;
 }
 
 async function getFieldStatus(
   config: ShipkeyConfig,
-  env: string
+  env: string,
+  backend: SecretBackend
 ): Promise<FieldStatusResult> {
-  const backend = new OnePasswordBackend();
   const statuses: Record<string, Record<string, "stored" | "missing">> = {};
 
-  if (!config.providers) return { statuses, opStatus: "ready" };
+  if (!config.providers) return { statuses, backendStatus: "ready" };
 
-  // Check op status (op --version + op account list — no vault access, no biometric)
-  const opStatus = await backend.checkStatus();
+  const backendStatus = await backend.checkStatus();
 
-  if (opStatus !== "ready") {
+  if (backendStatus !== "ready") {
     for (const [providerName, provider] of Object.entries(config.providers)) {
       statuses[providerName] = {};
       for (const field of provider.fields) {
         statuses[providerName][field] = "missing";
       }
     }
-    return { statuses, opStatus };
+    return { statuses, backendStatus };
   }
 
-  // Step 1: Single `op item list` to warm up biometric session + discover existing items
-  const vaultItems = await backend.listVaultItems(config.vault);
-  const existingProviders = new Set(vaultItems.map((item) => item.title));
+  // 1Password-specific optimization: use listVaultItems + getItemFields
+  if ("listVaultItems" in backend && "getItemFields" in backend) {
+    const opBackend = backend as any;
+    const vaultItems = await opBackend.listVaultItems(config.vault);
+    const existingProviders = new Set(vaultItems.map((item: any) => item.title));
+    const sectionName = `${config.project}-${env}`;
 
-  // Step 2: Sequential `op item get` only for providers that have items in vault
-  // (reuses the biometric session established by listVaultItems → 0 extra prompts)
-  const sectionName = `${config.project}-${env}`;
+    for (const [providerName, provider] of Object.entries(config.providers)) {
+      statuses[providerName] = {};
 
-  for (const [providerName, provider] of Object.entries(config.providers)) {
-    statuses[providerName] = {};
-
-    if (existingProviders.has(providerName)) {
-      const fields = await backend.getItemFields(providerName, config.vault);
-      const storedFields = new Set<string>();
-      for (const f of fields) {
-        if (f.section === sectionName) {
-          storedFields.add(f.label);
+      if (existingProviders.has(providerName)) {
+        const fields = await opBackend.getItemFields(providerName, config.vault);
+        const storedFields = new Set<string>();
+        for (const f of fields) {
+          if (f.section === sectionName) {
+            storedFields.add(f.label);
+          }
+        }
+        for (const field of provider.fields) {
+          statuses[providerName][field] = storedFields.has(field) ? "stored" : "missing";
+        }
+      } else {
+        for (const field of provider.fields) {
+          statuses[providerName][field] = "missing";
         }
       }
+    }
+  } else {
+    // Generic approach: try reading each field
+    for (const [providerName, provider] of Object.entries(config.providers)) {
+      statuses[providerName] = {};
       for (const field of provider.fields) {
-        statuses[providerName][field] = storedFields.has(field) ? "stored" : "missing";
-      }
-    } else {
-      for (const field of provider.fields) {
-        statuses[providerName][field] = "missing";
+        try {
+          await backend.read({
+            vault: config.vault,
+            provider: providerName,
+            project: config.project,
+            env,
+            field,
+          });
+          statuses[providerName][field] = "stored";
+        } catch {
+          statuses[providerName][field] = "missing";
+        }
       }
     }
   }
 
-  return { statuses, opStatus };
+  return { statuses, backendStatus };
 }
 
 async function writeLocalEnv(
@@ -220,9 +239,9 @@ async function handleStore(
   config: ShipkeyConfig,
   env: string,
   projectRoot: string,
-  body: { provider: string; fields: Record<string, string> }
+  body: { provider: string; fields: Record<string, string> },
+  backend: SecretBackend
 ): Promise<Response> {
-  const backend = new OnePasswordBackend();
   const providerConfig = config.providers?.[body.provider];
   if (!providerConfig) {
     return json({ success: false, error: `Unknown provider: ${body.provider}` }, 400);
@@ -271,7 +290,8 @@ async function handleStore(
 async function handleSync(
   config: ShipkeyConfig,
   env: string,
-  body: { target: string }
+  body: { target: string },
+  backend: SecretBackend
 ): Promise<Response> {
   const target = TARGETS[body.target];
   if (!target) {
@@ -287,8 +307,7 @@ async function handleSync(
     return json({ success: false, error: target.installHint() }, 400);
   }
 
-  const backend = new OnePasswordBackend();
-  const envKeyMap = buildEnvKeyToOpRef(config, env);
+  const refMap = buildSecretRefMap(config, backend, env);
   const results: { destination: string; synced: string[]; failed: string[] }[] = [];
 
   for (const [destination, secretRefs] of Object.entries(targetConfig)) {
@@ -296,20 +315,56 @@ async function handleSync(
 
     if (Array.isArray(secretRefs)) {
       for (const envKey of secretRefs) {
-        const opRef = envKeyMap.get(envKey);
-        if (!opRef) continue;
-        try {
-          const value = await backend.readRaw(opRef);
-          secrets.push({ name: envKey, value });
-        } catch {
-          // skip unresolvable
+        const inlineRef = refMap.get(envKey);
+        if (inlineRef && "readRaw" in backend) {
+          try {
+            const value = await (backend as any).readRaw(inlineRef);
+            secrets.push({ name: envKey, value });
+          } catch {
+            // skip unresolvable
+          }
+        } else {
+          // Try reading via the standard read() path
+          try {
+            // Build a SecretRef from config
+            const providerEntry = Object.entries(config.providers || {}).find(
+              ([, p]) => p.fields.includes(envKey)
+            );
+            if (!providerEntry) continue;
+            const value = await backend.read({
+              vault: config.vault,
+              provider: providerEntry[0],
+              project: config.project,
+              env,
+              field: envKey,
+            });
+            secrets.push({ name: envKey, value });
+          } catch {
+            // skip unresolvable
+          }
         }
       }
     } else {
       for (const [name, ref] of Object.entries(secretRefs)) {
         try {
-          const value = await backend.readRaw(ref);
-          secrets.push({ name, value });
+          if (ref.startsWith("op://") && "readRaw" in backend) {
+            const value = await (backend as any).readRaw(ref);
+            secrets.push({ name, value });
+          } else {
+            // Try resolving through config
+            const providerEntry = Object.entries(config.providers || {}).find(
+              ([, p]) => p.fields.includes(name)
+            );
+            if (!providerEntry) continue;
+            const value = await backend.read({
+              vault: config.vault,
+              provider: providerEntry[0],
+              project: config.project,
+              env,
+              field: name,
+            });
+            secrets.push({ name, value });
+          }
         } catch {
           // skip unresolvable
         }
@@ -339,6 +394,7 @@ function startServer(
   configPath: string,
   env: string,
   projectRoot: string,
+  backend: SecretBackend,
   port?: number
 ): ReturnType<typeof Bun.serve> {
   async function reloadConfig(): Promise<ShipkeyConfig> {
@@ -368,6 +424,7 @@ function startServer(
           project: config.project,
           vault: config.vault,
           env,
+          backend: config.backend || "1password",
           providers,
           targets: config.targets || {},
         });
@@ -375,7 +432,7 @@ function startServer(
 
       if (url.pathname === "/api/status" && req.method === "GET") {
         const config = await reloadConfig();
-        const { statuses, opStatus } = await getFieldStatus(config, env);
+        const { statuses, backendStatus } = await getFieldStatus(config, env, backend);
 
         // Check target CLI status
         const targetStatus: Record<string, TargetStatus> = {};
@@ -392,7 +449,8 @@ function startServer(
 
         return json({
           field_status: statuses,
-          op_status: opStatus,
+          backend_status: backendStatus,
+          backend_name: config.backend || "1password",
           target_status: targetStatus,
         });
       }
@@ -400,13 +458,13 @@ function startServer(
       if (url.pathname === "/api/store" && req.method === "POST") {
         const config = await reloadConfig();
         const body = await req.json();
-        return handleStore(config, env, projectRoot, body);
+        return handleStore(config, env, projectRoot, body, backend);
       }
 
       if (url.pathname === "/api/sync" && req.method === "POST") {
         const config = await reloadConfig();
         const body = await req.json();
-        return handleSync(config, env, body);
+        return handleSync(config, env, body, backend);
       }
 
       return json({ error: "Not found" }, 404);
@@ -461,17 +519,17 @@ export const setupCommand = new Command("setup")
       console.log(`\n  ✓ Generated shipkey.json\n`);
     }
 
-    const backend = new OnePasswordBackend();
+    const backend = getBackend(config.backend);
     if (!(await backend.isAvailable())) {
       console.warn(
-        "  Warning: 1Password CLI (op) not found. Store/read operations will fail.\n" +
-        "  Install: brew install --cask 1password-cli\n"
+        `  Warning: ${backend.name} CLI not available. Store/read operations will fail.\n` +
+        `  Run the setup wizard for installation instructions.\n`
       );
     }
 
     const configPath = join(projectRoot, "shipkey.json");
     const port = opts.port ? parseInt(opts.port, 10) : undefined;
-    const server = startServer(configPath, opts.env, projectRoot, port);
+    const server = startServer(configPath, opts.env, projectRoot, backend, port);
     const actualPort = server.port;
 
     const webHost = process.env.SHIPKEY_WEB_URL || "https://shipkey.dev";

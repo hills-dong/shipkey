@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { scan } from "../scanner";
-import { OnePasswordBackend } from "../backends/onepassword";
+import { getBackend } from "../backends";
 import { guessProvider } from "../providers";
+import { loadConfig } from "../config";
 import { resolve, basename } from "path";
 
 export const pushCommand = new Command("push")
@@ -16,11 +17,18 @@ export const pushCommand = new Command("push")
     const env = opts.env;
     const vault = opts.vault;
 
-    const backend = new OnePasswordBackend();
+    let backendName = "1password";
+    try {
+      const config = await loadConfig(projectRoot);
+      if (config.backend) backendName = config.backend;
+    } catch {
+      // No config file — use default backend
+    }
+    const backend = getBackend(backendName);
 
     if (!(await backend.isAvailable())) {
       console.error(
-        "Error: 1Password CLI (op) not found. Install: brew install --cask 1password-cli"
+        `Error: ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
       );
       process.exit(1);
     }
@@ -48,7 +56,7 @@ export const pushCommand = new Command("push")
       return;
     }
 
-    console.log(`Pushing ${entries.length} keys to 1Password...\n`);
+    console.log(`Pushing ${entries.length} keys to ${backend.name}...\n`);
 
     for (const entry of entries) {
       try {
@@ -62,7 +70,7 @@ export const pushCommand = new Command("push")
           },
           value: entry.value,
         });
-        console.log(`  ✓ ${entry.key} → 1Password`);
+        console.log(`  ✓ ${entry.key} → ${backend.name}`);
       } catch (err) {
         console.error(
           `  ✗ ${entry.key} — ${err instanceof Error ? err.message : err}`
