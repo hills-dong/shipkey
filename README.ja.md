@@ -4,7 +4,7 @@
 
 # shipkey
 
-たった1つのコマンドで、プロジェクトのすべての API キーをスキャン・バックアップ・同期。1Password で安全に管理。
+たった1つのコマンドで、プロジェクトのすべての API キーをスキャン・バックアップ・同期。1Password & Bitwarden 対応。
 
 ## なぜ必要か
 
@@ -25,7 +25,7 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
-> **ヒント：** `shipkey setup` を実行すると、ローカル API サーバーに接続されたウェブウィザードが自動的に開き、各プロバイダのキー設定を 1Password と連携してステップバイステップでガイドします。
+> **ヒント：** `shipkey setup` を実行すると、ローカル API サーバーに接続されたウェブウィザードが自動的に開き、各プロバイダのキー設定をパスワードマネージャー（1Password または Bitwarden）と連携してステップバイステップでガイドします。
 
 ## 仕組み
 
@@ -34,14 +34,31 @@ shipkey scan     →  .env ファイル、ワークフロー、wrangler 設定�
                     providers と権限推奨を含む shipkey.json を生成
 
 shipkey setup    →  ブラウザウィザードで API キーを入力
-                    1Password + ローカル .env.local/.dev.vars に保存
+                    パスワードマネージャー + ローカル .env.local/.dev.vars に保存
 
-shipkey pull     →  1Password からすべてのキーをローカルファイルに復元
+shipkey pull     →  パスワードマネージャーからすべてのキーをローカルファイルに復元
                     新しいマシンが数秒で準備完了
 
 shipkey sync     →  GitHub Actions、Cloudflare Workers にシークレットを送信
                     1コマンドですべてのプラットフォームに
 ```
+
+## 対応バックエンド
+
+| バックエンド | CLI | 読取 | 書込 | 一覧 |
+|-------------|-----|------|------|------|
+| [1Password](https://1password.com/) | `op` | ✅ | ✅ | ✅ |
+| [Bitwarden](https://bitwarden.com/) | `bw` | ✅ | ✅ | ✅ |
+
+`shipkey.json` でバックエンドを設定：
+
+```json
+{
+  "backend": "bitwarden"
+}
+```
+
+省略時のデフォルトは `"1password"` です（後方互換）。
 
 ## コマンド
 
@@ -59,8 +76,8 @@ shipkey setup --no-open        # ブラウザを自動で開かない
 ウィザードの機能：
 - 各プロバイダのステップバイステップガイド（Cloudflare、AWS、Stripe など）
 - プロジェクトコードから自動推論された権限の推奨
-- ワンクリックで 1Password に保存
-- CLI ステータスチェック（op、gh、wrangler）とインストール手順
+- ワンクリックで 1Password または Bitwarden に保存
+- CLI ステータスチェック（op/bw、gh、wrangler）とインストール手順
 
 ### `shipkey scan [dir]`
 
@@ -81,7 +98,7 @@ shipkey scan --dry-run         # プレビューのみ（書き込みなし）
 
 ### `shipkey push [dir]`
 
-ローカルの環境変数を 1Password にプッシュ。
+ローカルの環境変数をパスワードマネージャーにプッシュ。
 
 ```bash
 shipkey push                   # dev 環境をプッシュ
@@ -91,7 +108,7 @@ shipkey push --vault myteam    # カスタム保管庫
 
 ### `shipkey pull [dir]`
 
-1Password からシークレットを取得してローカル env ファイルを生成。
+パスワードマネージャーからシークレットを取得してローカル env ファイルを生成。
 
 ```bash
 shipkey pull                   # dev 環境を取得
@@ -101,7 +118,7 @@ shipkey pull --no-dev-vars     # .dev.vars の生成をスキップ
 ```
 
 生成ファイル：
-- `.envrc` — `op://` 参照付き（direnv 用）
+- `.envrc` — `op://` 参照付き（1Password）または直接値（Bitwarden）、direnv 用
 - `.dev.vars` — 解決済みの値（Cloudflare Workers 用）
 
 ### `shipkey sync [target] [dir]`
@@ -120,7 +137,7 @@ shipkey sync cloudflare        # Cloudflare Workers のみ
 
 ### `shipkey list [dir]`
 
-1Password に保存されたすべてのシークレットを一覧表示。
+パスワードマネージャーに保存されたすべてのシークレットを一覧表示。
 
 ```bash
 shipkey list                   # 現在のプロジェクト
@@ -136,6 +153,7 @@ shipkey list -e prod           # 環境でフィルタ
 {
   "project": "my-app",
   "vault": "shipkey",
+  "backend": "1password",
   "providers": {
     "Cloudflare": {
       "fields": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
@@ -152,9 +170,11 @@ shipkey list -e prod           # 環境でフィルタ
 }
 ```
 
-## 1Password ストレージ構造
+## ストレージ構造
 
-シークレットの保存パス形式：
+### 1Password
+
+シークレットは保管庫内のアイテムとして、セクションで整理されます：
 
 ```
 op://{vault}/{provider}/{project}-{env}/{FIELD}
@@ -167,13 +187,38 @@ op://shipkey/Cloudflare/my-app-prod/CLOUDFLARE_API_TOKEN
 op://shipkey/Stripe/my-app-dev/STRIPE_SECRET_KEY
 ```
 
+### Bitwarden
+
+シークレットはフォルダ内のセキュアノートとして、カスタム非表示フィールドで保存されます：
+
+```
+フォルダ: {vault}
+  アイテム: {provider}（セキュアノート）
+    フィールド: {project}-{env}.{FIELD}（非表示タイプ）
+```
+
+例：
+
+```
+フォルダ: shipkey
+  アイテム: Cloudflare
+    フィールド: my-app-prod.CLOUDFLARE_API_TOKEN = sk-xxx
+  アイテム: Stripe
+    フィールド: my-app-dev.STRIPE_SECRET_KEY = sk-xxx
+```
+
 ## 必要な環境
 
 - [Bun](https://bun.sh) ランタイム
-- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
-  ```bash
-  brew install --cask 1password-cli
-  ```
+- 以下のいずれかのパスワードマネージャー CLI：
+  - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
+    ```bash
+    brew install --cask 1password-cli
+    ```
+  - [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`)
+    ```bash
+    npm install -g @bitwarden/cli
+    ```
 - [GitHub CLI](https://cli.github.com/) (`gh`) — GitHub Actions への同期用
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) — Cloudflare Workers への同期用
 

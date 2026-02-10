@@ -4,7 +4,7 @@
 
 # shipkey
 
-Scan, backup, and sync all your project API keys with one command. Powered by 1Password.
+Scan, backup, and sync all your project API keys with one command. Powered by 1Password & Bitwarden.
 
 ## Why
 
@@ -25,7 +25,7 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
-> **Tip:** `shipkey setup` will automatically open a web-based wizard connected to a local API server, guiding you through each provider with step-by-step instructions and saving keys to 1Password.
+> **Tip:** `shipkey setup` will automatically open a web-based wizard connected to a local API server, guiding you through each provider with step-by-step instructions and saving keys to your password manager (1Password or Bitwarden).
 
 ## How It Works
 
@@ -34,14 +34,31 @@ shipkey scan     →  Detect .env files, workflows, wrangler configs
                     Generate shipkey.json with providers & permissions
 
 shipkey setup    →  Open browser wizard to enter API keys
-                    Save to 1Password + local .env.local/.dev.vars
+                    Save to password manager + local .env.local/.dev.vars
 
-shipkey pull     →  Restore all keys from 1Password to local files
+shipkey pull     →  Restore all keys from password manager to local files
                     New machine ready in seconds
 
 shipkey sync     →  Push secrets to GitHub Actions, Cloudflare Workers
                     One command, all platforms
 ```
+
+## Supported Backends
+
+| Backend | CLI | Read | Write | List |
+|---------|-----|------|-------|------|
+| [1Password](https://1password.com/) | `op` | ✅ | ✅ | ✅ |
+| [Bitwarden](https://bitwarden.com/) | `bw` | ✅ | ✅ | ✅ |
+
+Set the backend in `shipkey.json`:
+
+```json
+{
+  "backend": "bitwarden"
+}
+```
+
+Default is `"1password"` if omitted (backwards compatible).
 
 ## Commands
 
@@ -59,8 +76,8 @@ shipkey setup --no-open        # Don't auto-open browser
 The wizard provides:
 - Step-by-step guides for each provider (Cloudflare, AWS, Stripe, etc.)
 - Auto-inferred permission recommendations from your project code
-- Save to 1Password with one click
-- CLI status checks (op, gh, wrangler) with install instructions
+- One-click save to 1Password or Bitwarden
+- CLI status checks (op/bw, gh, wrangler) with install instructions
 
 ### `shipkey scan [dir]`
 
@@ -81,7 +98,7 @@ Auto-infers required permissions per provider.
 
 ### `shipkey push [dir]`
 
-Push local env values to 1Password.
+Push local env values to your password manager.
 
 ```bash
 shipkey push                   # Push dev env
@@ -91,7 +108,7 @@ shipkey push --vault myteam    # Custom vault
 
 ### `shipkey pull [dir]`
 
-Pull secrets from 1Password and generate local env files.
+Pull secrets from your password manager and generate local env files.
 
 ```bash
 shipkey pull                   # Pull dev env
@@ -101,7 +118,7 @@ shipkey pull --no-dev-vars     # Skip .dev.vars generation
 ```
 
 Generates:
-- `.envrc` with `op://` references for direnv
+- `.envrc` with `op://` references for direnv (1Password) or direct values (Bitwarden)
 - `.dev.vars` with resolved values for Cloudflare Workers
 
 ### `shipkey sync [target] [dir]`
@@ -120,7 +137,7 @@ Supported targets:
 
 ### `shipkey list [dir]`
 
-List all stored secrets in 1Password.
+List all stored secrets in your password manager.
 
 ```bash
 shipkey list                   # Current project
@@ -136,6 +153,7 @@ shipkey list -e prod           # Filter by environment
 {
   "project": "my-app",
   "vault": "shipkey",
+  "backend": "1password",
   "providers": {
     "Cloudflare": {
       "fields": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
@@ -152,9 +170,11 @@ shipkey list -e prod           # Filter by environment
 }
 ```
 
-## 1Password Storage Structure
+## Storage Structure
 
-Secrets are stored at:
+### 1Password
+
+Secrets are stored as items in a vault, organized by section:
 
 ```
 op://{vault}/{provider}/{project}-{env}/{FIELD}
@@ -167,13 +187,38 @@ op://shipkey/Cloudflare/my-app-prod/CLOUDFLARE_API_TOKEN
 op://shipkey/Stripe/my-app-dev/STRIPE_SECRET_KEY
 ```
 
+### Bitwarden
+
+Secrets are stored as Secure Note items in a folder, using custom hidden fields:
+
+```
+Folder: {vault}
+  Item: {provider}  (Secure Note)
+    Field: {project}-{env}.{FIELD}  (Hidden)
+```
+
+Example:
+
+```
+Folder: shipkey
+  Item: Cloudflare
+    Field: my-app-prod.CLOUDFLARE_API_TOKEN = sk-xxx
+  Item: Stripe
+    Field: my-app-dev.STRIPE_SECRET_KEY = sk-xxx
+```
+
 ## Requirements
 
 - [Bun](https://bun.sh) runtime
-- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
-  ```bash
-  brew install --cask 1password-cli
-  ```
+- One of the following password manager CLIs:
+  - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
+    ```bash
+    brew install --cask 1password-cli
+    ```
+  - [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`)
+    ```bash
+    npm install -g @bitwarden/cli
+    ```
 - [GitHub CLI](https://cli.github.com/) (`gh`) — for GitHub Actions sync
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) — for Cloudflare Workers sync
 

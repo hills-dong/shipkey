@@ -4,7 +4,7 @@
 
 # shipkey
 
-一条命令扫描、备份和同步项目中所有 API 密钥。基于 1Password 驱动。
+一条命令扫描、备份和同步项目中所有 API 密钥。支持 1Password 和 Bitwarden。
 
 ## 为什么需要
 
@@ -25,7 +25,7 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
-> **提示：** `shipkey setup` 会自动打开一个网页配置向导，连接本地 API 服务端口操作 1Password，引导你逐步配置每个服务商的密钥。
+> **提示：** `shipkey setup` 会自动打开一个网页配置向导，连接本地 API 服务，引导你逐步配置每个服务商的密钥并保存到密码管理器（1Password 或 Bitwarden）。
 
 ## 工作流程
 
@@ -34,14 +34,31 @@ shipkey scan     →  检测 .env 文件、工作流、wrangler 配置
                     生成 shipkey.json（含 providers 和权限推荐）
 
 shipkey setup    →  打开浏览器向导输入 API 密钥
-                    保存到 1Password + 本地 .env.local/.dev.vars
+                    保存到密码管理器 + 本地 .env.local/.dev.vars
 
-shipkey pull     →  从 1Password 恢复所有密钥到本地文件
+shipkey pull     →  从密码管理器恢复所有密钥到本地文件
                     新电脑数秒就绪
 
 shipkey sync     →  推送密钥到 GitHub Actions、Cloudflare Workers
                     一条命令，所有平台
 ```
+
+## 支持的后端
+
+| 后端 | CLI | 读取 | 写入 | 列表 |
+|------|-----|------|------|------|
+| [1Password](https://1password.com/) | `op` | ✅ | ✅ | ✅ |
+| [Bitwarden](https://bitwarden.com/) | `bw` | ✅ | ✅ | ✅ |
+
+在 `shipkey.json` 中设置后端：
+
+```json
+{
+  "backend": "bitwarden"
+}
+```
+
+不指定时默认使用 `"1password"`（向后兼容）。
 
 ## 命令
 
@@ -59,8 +76,8 @@ shipkey setup --no-open        # 不自动打开浏览器
 向导提供：
 - 每个服务商的分步指南（Cloudflare、AWS、Stripe 等）
 - 根据项目代码自动推断的权限推荐
-- 一键保存到 1Password
-- CLI 状态检查（op、gh、wrangler），附安装指引
+- 一键保存到 1Password 或 Bitwarden
+- CLI 状态检查（op/bw、gh、wrangler），附安装指引
 
 ### `shipkey scan [dir]`
 
@@ -81,7 +98,7 @@ shipkey scan --dry-run         # 预览，不写入文件
 
 ### `shipkey push [dir]`
 
-将本地环境变量推送到 1Password。
+将本地环境变量推送到密码管理器。
 
 ```bash
 shipkey push                   # 推送 dev 环境
@@ -91,7 +108,7 @@ shipkey push --vault myteam    # 自定义保险库
 
 ### `shipkey pull [dir]`
 
-从 1Password 拉取密钥并生成本地 env 文件。
+从密码管理器拉取密钥并生成本地 env 文件。
 
 ```bash
 shipkey pull                   # 拉取 dev 环境
@@ -101,7 +118,7 @@ shipkey pull --no-dev-vars     # 跳过 .dev.vars 生成
 ```
 
 生成文件：
-- `.envrc` — 含 `op://` 引用，配合 direnv 使用
+- `.envrc` — 含 `op://` 引用（1Password）或直接值（Bitwarden），配合 direnv 使用
 - `.dev.vars` — 含解析后的值，用于 Cloudflare Workers
 
 ### `shipkey sync [target] [dir]`
@@ -120,7 +137,7 @@ shipkey sync cloudflare        # 仅 Cloudflare Workers
 
 ### `shipkey list [dir]`
 
-列出 1Password 中存储的所有密钥。
+列出密码管理器中存储的所有密钥。
 
 ```bash
 shipkey list                   # 当前项目
@@ -136,6 +153,7 @@ shipkey list -e prod           # 按环境过滤
 {
   "project": "my-app",
   "vault": "shipkey",
+  "backend": "1password",
   "providers": {
     "Cloudflare": {
       "fields": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
@@ -152,9 +170,11 @@ shipkey list -e prod           # 按环境过滤
 }
 ```
 
-## 1Password 存储结构
+## 存储结构
 
-密钥存储路径格式：
+### 1Password
+
+密钥以条目形式存储在保险库中，按 Section 组织：
 
 ```
 op://{vault}/{provider}/{project}-{env}/{FIELD}
@@ -167,13 +187,38 @@ op://shipkey/Cloudflare/my-app-prod/CLOUDFLARE_API_TOKEN
 op://shipkey/Stripe/my-app-dev/STRIPE_SECRET_KEY
 ```
 
+### Bitwarden
+
+密钥以安全笔记形式存储在文件夹中，使用自定义隐藏字段：
+
+```
+文件夹: {vault}
+  条目: {provider}（安全笔记）
+    字段: {project}-{env}.{FIELD}（隐藏类型）
+```
+
+示例：
+
+```
+文件夹: shipkey
+  条目: Cloudflare
+    字段: my-app-prod.CLOUDFLARE_API_TOKEN = sk-xxx
+  条目: Stripe
+    字段: my-app-dev.STRIPE_SECRET_KEY = sk-xxx
+```
+
 ## 环境要求
 
 - [Bun](https://bun.sh) 运行时
-- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
-  ```bash
-  brew install --cask 1password-cli
-  ```
+- 以下密码管理器 CLI 之一：
+  - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
+    ```bash
+    brew install --cask 1password-cli
+    ```
+  - [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`)
+    ```bash
+    npm install -g @bitwarden/cli
+    ```
 - [GitHub CLI](https://cli.github.com/) (`gh`) — 用于同步到 GitHub Actions
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) — 用于同步到 Cloudflare Workers
 
