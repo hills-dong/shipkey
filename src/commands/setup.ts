@@ -476,68 +476,75 @@ function startServer(
         return new Response(null, { status: 204, headers: corsHeaders() });
       }
 
-      if (url.pathname === "/api/config" && req.method === "GET") {
-        const config = await reloadConfig();
-        const providers: Record<string, unknown> = {};
-        if (config.providers) {
-          for (const [name, provider] of Object.entries(config.providers)) {
-            providers[name] = { ...provider };
+      try {
+        if (url.pathname === "/api/config" && req.method === "GET") {
+          const config = await reloadConfig();
+          const providers: Record<string, unknown> = {};
+          if (config.providers) {
+            for (const [name, provider] of Object.entries(config.providers)) {
+              providers[name] = { ...provider };
+            }
           }
+
+          return json({
+            project: config.project,
+            vault: config.vault,
+            env,
+            backend: config.backend || "1password",
+            providers,
+            targets: config.targets || {},
+          });
         }
 
-        return json({
-          project: config.project,
-          vault: config.vault,
-          env,
-          backend: config.backend || "1password",
-          providers,
-          targets: config.targets || {},
-        });
-      }
+        if (url.pathname === "/api/status" && req.method === "GET") {
+          const config = await reloadConfig();
+          const { statuses, backendStatus } = await getFieldStatus(config, env, backend);
 
-      if (url.pathname === "/api/status" && req.method === "GET") {
-        const config = await reloadConfig();
-        const { statuses, backendStatus } = await getFieldStatus(config, env, backend);
+          // Check target CLI status
+          const targetStatus: Record<string, TargetStatus> = {};
+          if (config.targets) {
+            await Promise.all(
+              Object.keys(config.targets).map(async (targetName) => {
+                const target = TARGETS[targetName];
+                if (target) {
+                  targetStatus[targetName] = await target.checkStatus();
+                }
+              })
+            );
+          }
 
-        // Check target CLI status
-        const targetStatus: Record<string, TargetStatus> = {};
-        if (config.targets) {
-          await Promise.all(
-            Object.keys(config.targets).map(async (targetName) => {
-              const target = TARGETS[targetName];
-              if (target) {
-                targetStatus[targetName] = await target.checkStatus();
-              }
-            })
-          );
+          return json({
+            field_status: statuses,
+            backend_status: backendStatus,
+            backend_name: config.backend || "1password",
+            target_status: targetStatus,
+          });
         }
 
-        return json({
-          field_status: statuses,
-          backend_status: backendStatus,
-          backend_name: config.backend || "1password",
-          target_status: targetStatus,
-        });
-      }
+        if (url.pathname === "/api/push" && req.method === "POST") {
+          const config = await reloadConfig();
+          return handlePush(config, env, projectRoot, backend);
+        }
 
-      if (url.pathname === "/api/push" && req.method === "POST") {
-        const config = await reloadConfig();
-        return handlePush(config, env, projectRoot, backend);
-      }
+        if (url.pathname === "/api/store" && req.method === "POST") {
+          const config = await reloadConfig();
+          const body = await req.json();
+          return handleStore(config, env, projectRoot, body, backend);
+        }
 
-      if (url.pathname === "/api/store" && req.method === "POST") {
-        const config = await reloadConfig();
-        const body = await req.json();
-        return handleStore(config, env, projectRoot, body, backend);
-      }
+        if (url.pathname === "/api/sync" && req.method === "POST") {
+          const config = await reloadConfig();
+          const body = await req.json();
+          return handleSync(config, env, body, backend);
+        }
 
-      if (url.pathname === "/api/sync" && req.method === "POST") {
-        const config = await reloadConfig();
-        const body = await req.json();
-        return handleSync(config, env, body, backend);
+        return json({ error: "Not found" }, 404);
+      } catch (err) {
+        return json(
+          { error: err instanceof Error ? err.message : String(err) },
+          500
+        );
       }
-
-      return json({ error: "Not found" }, 404);
     },
   });
 }
