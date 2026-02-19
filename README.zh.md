@@ -25,6 +25,21 @@ curl -fsSL https://shipkey.dev/install.sh | bash
 shipkey setup
 ```
 
+> **服务器环境说明（无 AVX2 指令集）：** 如果运行时出现 `illegal hardware instruction` 错误，说明服务器 CPU 不支持 AVX2 指令集（如部分 KVM 虚拟机）。请安装 Bun 的 baseline 版本，然后从源码重新编译：
+>
+> ```bash
+> # 安装 Bun baseline 版本（不需要 AVX2）
+> curl -fsSL https://bun.sh/install | BUN_INSTALL_BASELINE=1 bash
+> source ~/.zshrc  # 或 source ~/.bashrc
+>
+> # 克隆并从源码编译
+> git clone https://github.com/hills-dong/shipkey.git
+> cd shipkey
+> bun install
+> bun build src/index.ts --compile --outfile shipkey
+> sudo mv shipkey /usr/local/bin/
+> ```
+
 > **提示：** `shipkey setup` 会自动打开一个网页配置向导，连接本地 API 服务，引导你逐步配置每个服务商的密钥并保存到密码管理器（1Password 或 Bitwarden）。
 
 ## 工作流程

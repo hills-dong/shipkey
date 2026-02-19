@@ -27,6 +27,21 @@ shipkey setup
 
 > **Tip:** `shipkey setup` will automatically open a web-based wizard connected to a local API server, guiding you through each provider with step-by-step instructions and saving keys to your password manager (1Password or Bitwarden).
 
+> **Server environments without AVX2 (e.g. KVM VMs):** If you see `illegal hardware instruction`, your CPU lacks AVX2 support. Install the Bun baseline build and compile from source:
+>
+> ```bash
+> # Install Bun baseline (no AVX2 required)
+> curl -fsSL https://bun.sh/install | BUN_INSTALL_BASELINE=1 bash
+> source ~/.zshrc  # or source ~/.bashrc
+>
+> # Clone and compile from source
+> git clone https://github.com/hills-dong/shipkey.git
+> cd shipkey
+> bun install
+> bun build src/index.ts --compile --outfile shipkey
+> sudo mv shipkey /usr/local/bin/
+> ```
+
 ## How It Works
 
 ```
